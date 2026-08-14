@@ -1000,6 +1000,16 @@ def generate_bd_files(model, rootdir):
             
         model.browndye_settings.ghost_indices_rec = ghost_indices_rec
         model.browndye_settings.ghost_indices_lig = ghost_indices_lig
+
+        # Fixes issue with BrownDye2 reading PQR files with no space between HETATM and atom number
+        # There is probably a more elegant way to do this
+        sed_command = 'sed -i "s/HETATM/ATOM  /g" %s' % receptor_pqr_filename
+        print("running command:", sed_command)
+        os.system(sed_command)
+        sed_command = 'sed -i "s/HETATM/ATOM  /g" %s' % ligand_pqr_filename
+        print("running command:", sed_command)
+        os.system(sed_command)
+
         receptor_xml_filename = sim_browndye2.make_pqrxml(
             receptor_pqr_filename, 
             browndye2_bin=model.browndye_settings.browndye_bin_dir)

@@ -2126,3 +2126,318 @@ class Voronoi_cv_input(CV_input):
     def check(self):
         return
     
+class Path_cv_anchor(CV_anchor):
+    """
+    This object represents an anchor within a Path CV (tracking progress 
+    along a pathway, e.g., s-variable or z-variable). Used for input 
+    purposes only.
+    
+    Attributes:
+    -----------
+    value : float
+        The progress parameter (s-value) along the pathway for this anchor.
+    
+    lower_milestone_value : float
+        Optionally define the locations of the milestones for each
+        anchor. This is the value of the lower milestone.
+        
+    upper_milestone_value : float
+        Optionally define the locations of the milestones for each
+        anchor. This is the value of the upper milestone
+    
+    starting_amber_params : Amber_params or None
+        If Amber inputs are used for this anchor, this object contains
+        the necessary inputs to start a new simulation
+        
+    starting_forcefield_params : Forcefield_params or None
+        If Forcefield XML inputs are used for this anchor, this object
+        contains the necessary inputs to start a new simulation
+        
+    bound_state : bool
+        Whether this anchor represents the bound state of a ligand-
+        receptor system
+        
+    bulk_anchor : bool
+        Whether this anchor acts as a bulk state of a ligand-receptor
+        system
+    """
+    
+    def __init__(self):
+        self.name = None
+        self.value = 0.0
+        self.lower_milestone_value = None
+        self.upper_milestone_value = None
+        self.starting_amber_params = None
+        self.starting_forcefield_params = None
+        self.starting_charmm_params = None
+        self.bound_state = False
+        self.bulk_anchor = False
+        self.connection_flags = []
+        return
+        
+    def check(self, j, cv_input):
+        if self.lower_milestone_value is not None:
+            assert j > 0, "lower_milestone_value must be None for lowest "\
+                "anchor in cv."
+            assert self.lower_milestone_value \
+                == cv_input.input_anchors[j-1].upper_milestone_value,\
+                "If lower_milestone_value is defined for anchor "\
+                "{}, the anchor below (number {}).".format(j, j-1)\
+                +" must have a corresponding upper_milestone_value."
+                
+        if self.upper_milestone_value is not None:
+            assert j < len(cv_input.input_anchors), \
+                "upper_milestone_value must be None for highest anchor "\
+                "in cv."
+            assert self.upper_milestone_value \
+                == cv_input.input_anchors[j+1].lower_milestone_value,\
+                "If upper_milestone_value is defined for anchor "\
+                "{} at value {:.3f}, the anchor above ".format(j, 
+                self.upper_milestone_value)\
+                +"(number {}).".format(j+1)\
+                +" must have a corresponding lower_milestone_value, "\
+                "current value: {:.3f}.".format(
+                    cv_input.input_anchors[j+1].lower_milestone_value)
+        return
+    
+    def get_variable_value(self):
+        return self.value
+
+
+class Path_cv_input(CV_input):
+    """
+    Inputs by the user resulting in path collective variable anchors
+    with milestones and the collective variable (CV)
+    
+    Attributes:
+    -----------
+    index : int
+        The index of this CV input object in the Model_input object
+        
+    group : list
+        A list of atom indices used for path distance calculation
+        
+    align_group : list or None
+        Optionally, a list of atom indices to align before calculating path progress
+        
+    ref_file : str
+        
+    cv_type : str
+        's' for path progress (1 to N) or 'z' for distance off the path.
+        
+    lambda_param : float
+        Smoothing parameter lambda used in the path CV calculation.
+        
+    input_anchors : list
+        A list of Path_cv_anchor objects specifying inputs for path anchors
+    """
+    
+    def __init__(self):
+        self.index = 0
+        self.group = []
+        self.align_group = None
+        self.ref_file = []
+        self.cv_type = 's'
+        self.lambda_param = 1.0
+        self.input_anchors = []
+        self.variable_name = "s"
+        self.state_points = []
+        return
+        
+    def check(self):
+        """
+        Check user inputs to ensure they have been entered properly
+        """
+        last_value = -1e9
+        found_bulk_anchor = False
+        assert len(self.group) > 0, "Any input CV groups must contain atoms."
+        
+        if self.input_anchors is None:
+            return
+        
+        for i, input_anchor in enumerate(self.input_anchors):
+            assert input_anchor.__class__.__name__ == "Path_cv_anchor"
+            value = input_anchor.value
+            assert value > last_value, "Each subsequent anchor "\
+                "value must be greater than the last (sorted)."
+            
+            if input_anchor.bound_state is None:
+                input_anchor.bound_state = False
+            
+            assert input_anchor.bound_state in [True, False], \
+                "bound_state must be a boolean"
+                
+            if input_anchor.bulk_anchor is None:
+                input_anchor.bulk_anchor = False
+                
+            assert input_anchor.bulk_anchor in [True, False], \
+                "bulk_anchor must be a boolean"
+            
+            if input_anchor.bulk_anchor:
+                assert not found_bulk_anchor, "Only one bulk anchor allowed "\
+                    "per set of anchors in a CV."
+                found_bulk_anchor = True
+            else:
+                assert not found_bulk_anchor, "Only the outermost anchor "\
+                    "should be the bulk anchor."
+            
+            if i > 0:
+                assert not input_anchor.bound_state, "Only the lowest "\
+                    "anchor can be the bound state."
+                    
+            assert len(self.input_anchors) > 1, "A CV must contain "\
+                "more than one anchor."
+                
+            last_value = value
+        
+        return
+    
+    def make_mmvt_milestone_between_two_anchors(
+            self, anchor1, anchor2, input_anchor1, input_anchor2, 
+            milestone_index):
+        milestone_index = super(Path_cv_input, self)\
+            .make_mmvt_milestone_between_two_anchors(
+                anchor1, anchor2, input_anchor1, input_anchor2, milestone_index)
+        return milestone_index
+
+class dRMSD_path_cv_anchor(CV_anchor):
+    """
+    Anchor object for an inter-group dRMSD Path CV.
+    Tracks path progress s and enforces an upper bound cutoff on orthogonal distance z.
+    
+    Attributes:
+    -----------
+    value : float
+        The path progress parameter (s-value) for this anchor.
+    z_cutoff : float
+        The maximum allowed orthogonal distance (z-value off path) for this anchor.
+    k_z : float
+        Restraining force constant applied when z exceeds z_cutoff.
+    lower_milestone_value : float or None
+        Defined lower milestone location for path progress s.
+    upper_milestone_value : float or None
+        Defined upper milestone location for path progress s.
+    """
+    def __init__(self):
+        super().__init__()
+        self.name = None
+        self.value = 0.0
+        self.z_cutoff = 999.0
+        self.k_z = 0.0
+        self.lower_milestone_value = None
+        self.upper_milestone_value = None
+        self.starting_amber_params = None
+        self.starting_forcefield_params = None
+        self.starting_charmm_params = None
+        self.bound_state = False
+        self.bulk_anchor = False
+        self.connection_flags = []
+
+    def check(self, j, cv_input):
+        """
+        Verify that lower and upper milestone values match neighbor anchors,
+        and validate z_cutoff parameters.
+        """
+        assert self.z_cutoff >= 0.0, f"z_cutoff for anchor {j} must be non-negative."
+
+        if self.lower_milestone_value is not None:
+            assert j > 0, "lower_milestone_value must be None for lowest anchor."
+            assert self.lower_milestone_value == cv_input.input_anchors[j-1].upper_milestone_value, \
+                f"Lower milestone of anchor {j} must match upper milestone of anchor {j-1}."
+
+        if self.upper_milestone_value is not None:
+            assert j < len(cv_input.input_anchors) - 1, \
+                "upper_milestone_value must be None for highest anchor."
+            assert self.upper_milestone_value == cv_input.input_anchors[j+1].lower_milestone_value, \
+                f"Upper milestone of anchor {j} must match lower milestone of anchor {j+1}."
+
+    def get_variable_value(self):
+        return self.value
+
+
+class dRMSD_path_cv_input(CV_input):
+    """
+    Input configuration for an inter-group dRMSD Path Collective Variable.
+    
+    Attributes:
+    -----------
+    index : int
+        Index of this CV input object.
+    group1 : list of int
+        Atom indices for Group 1 (e.g., ligand atoms).
+    group2 : list of int
+        Atom indices for Group 2 (e.g., protein pocket atoms).
+    ref_file : str
+        Path to multi-frame reference PDB file defining path coordinates.
+    lambda_param : float
+        Smoothing factor lambda for path calculations.
+    input_anchors : list of dRMSD_path_cv_anchor
+        Anchors specifying path progress values and z cutoffs.
+    """
+    def __init__(self):
+        super().__init__()
+        self.index = 0
+        self.group1 = []
+        self.group2 = []
+        self.ref_file = ""
+        self.lambda_param = 1.0
+        self.input_anchors = []
+        self.variable_name = "s"
+
+    def check(self):
+        """
+        Validate input fields prior to building model anchors.
+        """
+        assert len(self.group1) > 0, "Group1 (ligand) must contain at least 1 atom."
+        assert len(self.group2) > 0, "Group2 (protein) must contain at least 1 atom."
+        assert self.ref_file != "", "Must supply a valid reference trajectory/PDB file path."
+
+        last_value = -1e9
+        found_bulk_anchor = False
+
+        for i, input_anchor in enumerate(self.input_anchors):
+            assert input_anchor.__class__.__name__ == "dRMSD_path_cv_anchor", \
+                "Anchors for dRMSD_path_cv_input must be instances of dRMSD_path_cv_anchor."
+            
+            value = input_anchor.value
+            assert value > last_value, "Anchor path values (s) must be strictly increasing."
+            assert input_anchor.z_cutoff >= 0.0, "z_cutoff must be greater than or equal to zero."
+
+            if input_anchor.bound_state is None:
+                input_anchor.bound_state = False
+            if input_anchor.bulk_anchor is None:
+                input_anchor.bulk_anchor = False
+
+            if input_anchor.bulk_anchor:
+                assert not found_bulk_anchor, "Only one bulk anchor allowed per CV."
+                found_bulk_anchor = True
+            else:
+                assert not found_bulk_anchor, "Only the outermost anchor can be the bulk anchor."
+
+            if i > 0:
+                assert not input_anchor.bound_state, "Only the lowest anchor can be the bound state."
+
+            last_value = value
+
+    def make_mmvt_milestone_between_two_anchors(
+            self, anchor1, anchor2, input_anchor1, input_anchor2, milestone_index):
+        """
+        Constructs MMVT milestone between two anchors and attaches both S boundary 
+        value and Z upper cutoff variables.
+        """
+        current_ms_index = milestone_index
+        next_ms_index = super().make_mmvt_milestone_between_two_anchors(
+            anchor1, anchor2, input_anchor1, input_anchor2, milestone_index)
+
+        # Interpolate z_cutoff and k_z at the milestone interface
+        z_cutoff = 0.5 * (input_anchor1.z_cutoff + input_anchor2.z_cutoff)
+        k_z = 0.5 * (getattr(input_anchor1, 'k_z', 0.0) + getattr(input_anchor2, 'k_z', 0.0))
+
+        # Assign Z cutoff variables to newly created milestones
+        for anchor in [anchor1, anchor2]:
+            for ms in anchor.milestones:
+                if ms.index == current_ms_index:
+                    ms.variables["z_cutoff"] = z_cutoff
+                    ms.variables["k_z"] = k_z
+
+        return next_ms_index
