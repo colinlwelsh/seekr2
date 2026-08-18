@@ -155,7 +155,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert self.num_groups == 1
         self.openmm_expression = (
             f"step(k_{alias_id}*(PATH_S - value_{alias_id})) + "
-            f"step(k_z_{alias_id}*(PATH_Z - z_cutoff_{alias_id}))"
+            f"step(PATH_Z - z_cutoff_{alias_id})"
         )
         expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression})"
         
