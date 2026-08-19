@@ -153,15 +153,40 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             import simtk.openmm as openmm
 
         assert self.num_groups == 1
+        
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_atoms1 = len(self.group1)
+        num_atoms2 = len(self.group2)
+
+        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
+        num_pairs = num_atoms1 * num_atoms2
+
+        exp_terms = [f"exp(-lam * drmsd_{i}**2)" for i in range(num_frames)]
+        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
+        numerator = " + ".join(num_terms)
+        denominator = " + ".join(exp_terms)
+        path_s = f"({numerator}) / ({denominator})"
+
         self.openmm_expression = (
-            f"step(k_{alias_id}*(PATH_S - value_{alias_id})) + "
-            f"step(PATH_Z - z_cutoff_{alias_id})"
+            f"step(k_{alias_id}*({path_s} - value_{alias_id}))"
         )
         expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression})"
-        
+
         boundary_force = openmm.CustomCVForce(expression_w_bitcode)
-        boundary_force.addCollectiveVariable("PATH_S", self.make_path_s_force())
-        boundary_force.addCollectiveVariable("PATH_Z", self.make_path_z_force())
+        boundary_force.addGlobalParameter("lam", self.lambda_param)
+
+        for k in range(num_frames):
+            ref_dist_matrix = ref_distances[k]
+            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("d0")
+
+            for i_idx, a1 in enumerate(self.group1):
+                for j_idx, a2 in enumerate(self.group2):
+                    sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
+
+            boundary_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
+
         return boundary_force
 
     def make_restraining_force(self, alias_id):
@@ -172,13 +197,40 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             import simtk.openmm as openmm
 
         assert self.num_groups == 1
+
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_atoms1 = len(self.group1)
+        num_atoms2 = len(self.group2)
+
+        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
+        num_pairs = num_atoms1 * num_atoms2
+
+        exp_terms = [f"exp(-lam * drmsd_{i}**2)" for i in range(num_frames)]
+        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
+        numerator = " + ".join(num_terms)
+        denominator = " + ".join(exp_terms)
+        path_s = f"({numerator}) / ({denominator})"
+        path_z = f"(-1.0 / lam * log({denominator})"
         self.restraining_expression = (
-            f"0.5*k_{alias_id}*(PATH_S - value_{alias_id})^2 + "
-            f"0.5*k_z_{alias_id}*(max(0, PATH_Z - z_cutoff_{alias_id}))^2"
+            f"0.5*k_{alias_id}*({path_s} - value_{alias_id})^2 + "
+            f"0.5*k_z_{alias_id}*(max(0, {path_z} - z_cutoff_{alias_id}))^2"
         )
-        restraining_force = openmm.CustomCVForce(self.restraining_expression)
-        restraining_force.addCollectiveVariable("PATH_S", self.make_path_s_force())
-        restraining_force.addCollectiveVariable("PATH_Z", self.make_path_z_force())
+        expression_w_bitcode = f"bitcode_{alias_id}*({self.restraining_expression})"
+
+        restraining_force = openmm.CustomCVForce(expression_w_bitcode)
+        restraining_force.addGlobalParameter("lam", self.lambda_param)
+
+        for k in range(num_frames):
+            ref_dist_matrix = ref_distances[k]
+            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("d0")
+
+            for i_idx, a1 in enumerate(self.group1):
+                for j_idx, a2 in enumerate(self.group2):
+                    sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
+
+            restraining_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
         return restraining_force
 
     def make_cv_force(self, alias_id):
