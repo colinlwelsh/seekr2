@@ -199,7 +199,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         den_terms = [f"e_{k}" for k in range(num_frames)]
         numerator = " + ".join(num_terms)
         denominator = " + ".join(den_terms)
-        definition_str = " ".join(exp_terms + dmsd_terms)
+        definition_str = "; ".join(exp_terms + dmsd_terms)
         expression_str = f"({numerator}) / ({denominator})"
         return expression_str, definition_str
 
