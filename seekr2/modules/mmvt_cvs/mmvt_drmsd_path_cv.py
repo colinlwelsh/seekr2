@@ -100,18 +100,24 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         path_s_sub_forces = []
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
-            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
+            sub_force = openmm.CustomBondForce(f"(r - r0)^2 / {num_pairs}")
+            #sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
             sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
                 for j_idx, a2 in enumerate(self.group2):
-                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
-                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
+                    sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
+                    #sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
 
             path_s_sub_forces.append(sub_force)
 
         return path_s_sub_forces
+
+    def _get_path_sub_forces(self):
+        if not hasattr(self, '_path_sub_forces') or self._path_sub_forces is None:
+            self._path_sub_forces = self.make_path_sub_forces()
+            self.update_blacklist('_path_sub_forces')
+        return self._path_sub_forces
 
     def make_path_s_expression(self):
         """Creates an OpenMM CustomCVForce representing path progress s(x)."""
@@ -128,11 +134,15 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * dmsd_{i})" for i in range(num_frames)]
-        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
+        def_terms = [f"e_{i} = exp(-lam * dmsd_{i})" for i in range(num_frames)]
+        num_terms = [f"{i + 1} * e_{i}" for i in range(num_frames)]
+        den_terms = [f"e_{i}" for i in range(num_frames)]
+        #exp_terms = [f"exp(-lam * dmsd_{i})" for i in range(num_frames)]
+        #num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
         numerator = " + ".join(num_terms)
-        denominator = " + ".join(exp_terms)
-        expression = f"({numerator}) / ({denominator})"
+        denominator = " + ".join(den_terms)
+        definitions = "; ".join(def_terms)
+        expression = f"({numerator}) / ({denominator}); {definitions}"
         return expression
 
     def make_path_z_expression(self):
@@ -150,11 +160,11 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * dmsd_{i})" for i in range(num_frames)]
-        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
-        numerator = " + ".join(num_terms)
-        denominator = " + ".join(exp_terms)
-        expression = f"(-1.0 / lam * log({denominator})"
+        def_terms = [f"e_{i} = exp(-lam * dmsd_{i})" for i in range(num_frames)]
+        den_terms = [f"e_{i}" for i in range(num_frames)]
+        denominator = " + ".join(den_terms)
+        definitions = "; ".join(def_terms)
+        expression = f"(-1.0 / lam * log({denominator})); {definitions}"
         return expression
 
     def make_path_s_force(self):
@@ -238,7 +248,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             import simtk.openmm as openmm
 
         path_s_expression = self._get_path_s_expression()
-        path_s_sub_forces = self.make_path_sub_forces()
+        path_s_sub_forces = self._get_path_sub_forces()
 
         me_expr = f"(me_val_{self.index}_alias_{alias_id} - {path_s_expression})^2"
         me_force = openmm.CustomCVForce(me_expr)
@@ -268,7 +278,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def add_parameters(self, force):
         force.addGlobalParameter("lam", self.lambda_param)
-        sub_forces = self.make_path_sub_forces()
+        sub_forces = self._get_path_sub_forces()
         for k in range(len(sub_forces)):
             force.addCollectiveVariable(f"dmsd_{k}", sub_forces[k])
         return
