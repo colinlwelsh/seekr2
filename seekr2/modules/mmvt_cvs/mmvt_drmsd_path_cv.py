@@ -97,7 +97,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
             #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
             sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
@@ -134,7 +134,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
             #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
             sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
@@ -183,7 +183,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
             #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
             sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
@@ -230,7 +230,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
             #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
             sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
