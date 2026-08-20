@@ -96,8 +96,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
-            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("d0")
+            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
                 for j_idx, a2 in enumerate(self.group2):
@@ -131,8 +132,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
-            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("d0")
+            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
                 for j_idx, a2 in enumerate(self.group2):
@@ -162,7 +164,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * drmsd_{i}^2)" for i in range(num_frames)]
+        exp_terms = [f"exp(-lam * drmsd_{i})" for i in range(num_frames)]
         num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
         numerator = " + ".join(num_terms)
         denominator = " + ".join(exp_terms)
@@ -178,8 +180,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
-            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("d0")
+            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
                 for j_idx, a2 in enumerate(self.group2):
@@ -223,8 +226,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
         for k in range(num_frames):
             ref_dist_matrix = ref_distances[k]
-            sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("d0")
+            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(a1,a2) - r0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("r0")
 
             for i_idx, a1 in enumerate(self.group1):
                 for j_idx, a2 in enumerate(self.group2):
@@ -339,7 +343,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
     def get_mdtraj_cv_value(self, traj, frame_index):
         """Returns tuple (s_val, z_val) for a trajectory frame."""
         drmsds = self._get_frame_drmsds_mdtraj(traj, frame_index)
-        exps = np.exp(-self.lambda_param * (drmsds**2))
+        exps = np.exp(-self.lambda_param * (drmsds))
         sum_exps = np.sum(exps)
 
         weights = np.arange(1, len(drmsds) + 1)
@@ -367,11 +371,12 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         drmsds = []
         for k in range(ref_distances.shape[0]):
             ref_dists = ref_distances[k]
-            drmsd_k = np.sqrt(np.mean((current_dists - ref_dists) ** 2))
+            #drmsd_k = np.sqrt(np.mean((current_dists - ref_dists) ** 2))
+            drmsd_k = np.mean((current_dists - ref_dists) ** 2)
             drmsds.append(drmsd_k)
 
         drmsds = np.array(drmsds)
-        exps = np.exp(-self.lambda_param * (drmsds**2))
+        exps = np.exp(-self.lambda_param * (drmsds))
         sum_exps = np.sum(exps)
 
         weights = np.arange(1, len(drmsds) + 1)
