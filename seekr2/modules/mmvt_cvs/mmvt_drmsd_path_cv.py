@@ -45,6 +45,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self.restraining_expression = None
         self.cv_expression = "PATH_S"
         self._path_s_expression = None
+        self._path_s_definitions = None
         self._path_z_expression = None
         self.num_groups = 1
         self.per_dof_variables = []
@@ -74,9 +75,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def _get_path_s_expression(self):
         if not hasattr(self, '_path_s_expression') or self._path_s_expression is None:
-            self._path_s_expression = self.make_path_s_expression()
+            self._path_s_expression, self._path_s_definitions = self.make_force_expression()
             self.update_blacklist('_path_s_expression')
-        return self._path_s_expression
+        return self._path_s_expression, self._path_s_definitions
 
     def _get_path_z_expression(self):
         if not hasattr(self, '_path_z_expression') or self._path_z_expression is None:
@@ -167,6 +168,41 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         expression = f"(-1.0 / lam * log({denominator})); {definitions}"
         return expression
 
+    def make_force_expression(self):
+        try:
+            import openmm
+        except ImportError:
+            import simtk.openmm as openmm
+
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_pairs = len(self.group1) * len(self.group2)
+
+        distance_definitions = []
+        pair_names = []
+        for i in range(len(self.group1)):
+            p1_name = f"p{i+1}"
+            for j in range(len(self.group2)):
+                p2_name = f"p{len(self.group1)+j+1}"
+                name = f"d_{p1_name}_{p2_name}"
+                distance_definitions.append(f"{name} = distance({p1_name}, {p2_name})")
+                pair_names.append((name,i,j))
+        dmsd_terms = []
+        for k in range(num_frames):
+            cross = " + ".join(f"{name}*{ref_distances[k,i,j]:.6f}" for name,i,j in pair_names)
+            const_k = float(np.sum(ref_distances[k]**2)) / num_pairs
+            sumsq   = " + ".join(f"{name}^2" for name,i,j in pair_names)
+            dmsd_terms.append(f"dmsd_{k} = (({sumsq} - 2*{cross})) / {num_pairs} + {const_k}")
+
+        exp_terms = [f"e_{k} = exp(-lam * dmsd_{k})" for k in range(num_frames)]
+        num_terms = [f"{k + 1} * e_{k}" for k in range(num_frames)]
+        den_terms = [f"e_{k}" for k in range(num_frames)]
+        numerator = " + ".join(num_terms)
+        denominator = " + ".join(den_terms)
+        definition_str = " ".join(exp_terms + dmsd_terms)
+        expression_str = f"({numerator}) / ({denominator})"
+        return expression_str, definition_str
+
     def make_path_s_force(self):
         """Creates an OpenMM CustomCVForce representing path progress s(x)."""
         expression = self._get_path_s_expression()
@@ -208,14 +244,17 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        path_s_expression = self._get_path_s_expression()
+        path_s_expression, path_s_definitions = self._get_path_s_expression()
 
         self.openmm_expression = (
             f"step(k_{alias_id}*({path_s_expression} - value_{alias_id}))"
         )
-        expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression})"
+        expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression}); {path_s_definitions}"
+        all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
+        num_particles = len(all_particles)
 
-        boundary_force = openmm.CustomCVForce(expression_w_bitcode)
+        #boundary_force = openmm.CustomCVForce(expression_w_bitcode)
+        boundary_force = openmm.CustomCompoundBondForce(num_particles, expression_w_bitcode)
 
         return boundary_force
 
@@ -278,9 +317,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def add_parameters(self, force):
         force.addGlobalParameter("lam", self.lambda_param)
-        sub_forces = self._get_path_sub_forces()
-        for k in range(len(sub_forces)):
-            force.addCollectiveVariable(f"dmsd_{k}", sub_forces[k])
+        #sub_forces = self._get_path_sub_forces()
+        #for k in range(len(sub_forces)):
+        #    force.addCollectiveVariable(f"dmsd_{k}", sub_forces[k])
         return
 
     def add_groups_and_variables(self, force, variables, alias_id):
