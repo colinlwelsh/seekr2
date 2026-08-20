@@ -74,15 +74,17 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def _get_path_s_expression(self):
         if not hasattr(self, '_path_s_expression') or self._path_s_expression is None:
-            self._path_s_expression = self.make_path_s_expression()
+            self._path_s_expression, self._path_s_definitions = self.make_path_s_expression()
             self.update_blacklist('_path_s_expression')
-        return self._path_s_expression
+            self.update_blacklist('_path_s_definitions')
+        return self._path_s_expression, self._path_s_definitions
 
     def _get_path_z_expression(self):
         if not hasattr(self, '_path_z_expression') or self._path_z_expression is None:
-            self._path_z_expression = self.make_path_z_expression()
+            self._path_z_expression, self._path_z_definitions = self.make_path_z_expression()
             self.update_blacklist('_path_z_expression')
-        return self._path_z_expression
+            self.update_blacklist('_path_z_definitions')
+        return self._path_z_expression, self._path_z_definitions
 
     def make_path_sub_forces(self):
         try:
@@ -142,8 +144,8 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         numerator = " + ".join(num_terms)
         denominator = " + ".join(den_terms)
         definitions = "; ".join(def_terms)
-        expression = f"({numerator}) / ({denominator}); {definitions}"
-        return expression
+        expression = f"({numerator}) / ({denominator})"
+        return expression, definitions
 
     def make_path_z_expression(self):
         """Creates an OpenMM CustomCVForce representing path progress s(x)."""
@@ -164,14 +166,14 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         den_terms = [f"e_{i}" for i in range(num_frames)]
         denominator = " + ".join(den_terms)
         definitions = "; ".join(def_terms)
-        expression = f"(-1.0 / lam * log({denominator})); {definitions}"
-        return expression
+        expression = f"(-1.0 / lam * log({denominator}))"
+        return expression, definitions
 
     def make_path_s_force(self):
         """Creates an OpenMM CustomCVForce representing path progress s(x)."""
-        expression = self._get_path_s_expression()
+        expression, definitions = self._get_path_s_expression()
 
-        path_s_force = openmm.CustomCVForce(expression)
+        path_s_force = openmm.CustomCVForce(f"{expression}; {definitions}")
 
         return path_s_force
 
@@ -182,9 +184,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        expression = self._get_path_z_expression()
+        expression, definitions = self._get_path_z_expression()
 
-        path_z_force = openmm.CustomCVForce(expression)
+        path_z_force = openmm.CustomCVForce(f"{expression}; {definitions}")
         path_z_force.addGlobalParameter("lam", self.lambda_param)
 
         return path_z_force
@@ -208,12 +210,12 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        path_s_expression = self._get_path_s_expression()
+        path_s_expression, path_s_definitions = self._get_path_s_expression()
 
         self.openmm_expression = (
             f"step(k_{alias_id}*({path_s_expression} - value_{alias_id}))"
         )
-        expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression})"
+        expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression}); {path_s_definitions}"
 
         boundary_force = openmm.CustomCVForce(expression_w_bitcode)
 
@@ -226,14 +228,14 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        path_s = self._get_path_s_expression()
-        path_z = self._get_path_z_expression()
+        path_s, definitions = self._get_path_s_expression()
+        path_z, _ = self._get_path_z_expression()
 
         self.restraining_expression = (
             f"0.5*k_{alias_id}*({path_s} - value_{alias_id})^2 + "
             f"0.5*k_z_{alias_id}*(max(0, {path_z} - z_cutoff_{alias_id}))^2"
         )
-        expression_w_bitcode = f"bitcode_{alias_id}*({self.restraining_expression})"
+        expression_w_bitcode = f"bitcode_{alias_id}*({self.restraining_expression}); {definitions}"
 
         restraining_force = openmm.CustomCVForce(expression_w_bitcode)
         return restraining_force
@@ -247,7 +249,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        path_s_expression = self._get_path_s_expression()
+        path_s_expression, path_s_definitions = self._get_path_s_expression()
         path_s_sub_forces = self._get_path_sub_forces()
 
         me_expr = f"(me_val_{self.index}_alias_{alias_id} - {path_s_expression})^2"
