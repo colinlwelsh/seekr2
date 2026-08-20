@@ -162,7 +162,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * drmsd_{i}**2)" for i in range(num_frames)]
+        exp_terms = [f"exp(-lam * drmsd_{i}^2)" for i in range(num_frames)]
         num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
         numerator = " + ".join(num_terms)
         denominator = " + ".join(exp_terms)
