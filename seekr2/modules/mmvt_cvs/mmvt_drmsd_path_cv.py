@@ -44,6 +44,8 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self.openmm_expression = None
         self.restraining_expression = None
         self.cv_expression = "PATH_S"
+        self._path_s_expression = None
+        self._path_z_expression = None
         self.num_groups = 1
         self.per_dof_variables = []
         self.global_variables = ["k", "value", "k_z", "z_cutoff"]
@@ -70,7 +72,48 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             self.update_blacklist("_ref_distances")
         return self._ref_distances
 
-    def make_path_s_force(self):
+    def _get_path_s_expression(self):
+        if not hasattr(self, '_path_s_expression') or self._path_s_expression is None:
+            self._path_s_expression = self.make_path_s_expression()
+            self.update_blacklist('_path_s_expression')
+        return self._path_s_expression
+
+    def _get_path_z_expression(self):
+        if not hasattr(self, '_path_z_expression') or self._path_z_expression is None:
+            self._path_z_expression = self.make_path_z_expression()
+            self.update_blacklist('_path_z_expression')
+        return self._path_z_expression
+
+    def make_path_sub_forces(self):
+        try:
+            import openmm
+        except ImportError:
+            import simtk.openmm as openmm
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_atoms1 = len(self.group1)
+        num_atoms2 = len(self.group2)
+        
+        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
+        num_pairs = num_atoms1 * num_atoms2
+
+        path_s_sub_forces = []
+        for k in range(num_frames):
+            ref_dist_matrix = ref_distances[k]
+            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
+            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
+            sub_force.addPerBondParameter("r0")
+
+            for i_idx, a1 in enumerate(self.group1):
+                for j_idx, a2 in enumerate(self.group2):
+                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
+                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
+
+            path_s_sub_forces.append(sub_force)
+
+        return path_s_sub_forces
+
+    def make_path_s_expression(self):
         """Creates an OpenMM CustomCVForce representing path progress s(x)."""
         try:
             import openmm
@@ -85,27 +128,40 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * drmsd_{i})" for i in range(num_frames)]
+        exp_terms = [f"exp(-lam * dmsd_{i})" for i in range(num_frames)]
         num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
         numerator = " + ".join(num_terms)
         denominator = " + ".join(exp_terms)
         expression = f"({numerator}) / ({denominator})"
+        return expression
+
+    def make_path_z_expression(self):
+        """Creates an OpenMM CustomCVForce representing path progress s(x)."""
+        try:
+            import openmm
+        except ImportError:
+            import simtk.openmm as openmm
+
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_atoms1 = len(self.group1)
+        num_atoms2 = len(self.group2)
+        
+        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
+        num_pairs = num_atoms1 * num_atoms2
+
+        exp_terms = [f"exp(-lam * dmsd_{i})" for i in range(num_frames)]
+        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
+        numerator = " + ".join(num_terms)
+        denominator = " + ".join(exp_terms)
+        expression = f"(-1.0 / lam * log({denominator})"
+        return expression
+
+    def make_path_s_force(self):
+        """Creates an OpenMM CustomCVForce representing path progress s(x)."""
+        expression = self._get_path_s_expression()
 
         path_s_force = openmm.CustomCVForce(expression)
-        path_s_force.addGlobalParameter("lam", self.lambda_param)
-
-        for k in range(num_frames):
-            ref_dist_matrix = ref_distances[k]
-            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("r0")
-
-            for i_idx, a1 in enumerate(self.group1):
-                for j_idx, a2 in enumerate(self.group2):
-                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
-                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
-
-            path_s_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
 
         return path_s_force
 
@@ -116,40 +172,16 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        ref_distances = self._get_ref_dists()
-        num_frames = ref_distances.shape[0]
-        num_atoms1 = len(self.group1)
-        num_atoms2 = len(self.group2)
-        
-        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
-        num_pairs = num_atoms1 * num_atoms2
-
-        exp_terms = [f"exp(-lam * drmsd_{i})" for i in range(num_frames)]
-        sum_exp = " + ".join(exp_terms)
-        expression = f"-1.0 / lam * log({sum_exp})"
+        expression = self._get_path_z_expression()
 
         path_z_force = openmm.CustomCVForce(expression)
         path_z_force.addGlobalParameter("lam", self.lambda_param)
-
-        for k in range(num_frames):
-            ref_dist_matrix = ref_distances[k]
-            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("r0")
-
-            for i_idx, a1 in enumerate(self.group1):
-                for j_idx, a2 in enumerate(self.group2):
-                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
-                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
-
-            path_z_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
 
         return path_z_force
 
     def make_boundary_force(self, alias_id):
         """
         Creates a boundary force enforcing S milestone progress boundary 
-        and an upper limit on Z orthogonal distance.
         """
         try:
             import openmm
@@ -166,32 +198,14 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
         num_pairs = num_atoms1 * num_atoms2
 
-        exp_terms = [f"exp(-lam * drmsd_{i})" for i in range(num_frames)]
-        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
-        numerator = " + ".join(num_terms)
-        denominator = " + ".join(exp_terms)
-        path_s = f"({numerator}) / ({denominator})"
+        path_s_expression = self._get_path_s_expression()
 
         self.openmm_expression = (
-            f"step(k_{alias_id}*({path_s} - value_{alias_id}))"
+            f"step(k_{alias_id}*({path_s_expression} - value_{alias_id}))"
         )
         expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression})"
 
         boundary_force = openmm.CustomCVForce(expression_w_bitcode)
-        boundary_force.addGlobalParameter("lam", self.lambda_param)
-
-        for k in range(num_frames):
-            ref_dist_matrix = ref_distances[k]
-            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("r0")
-
-            for i_idx, a1 in enumerate(self.group1):
-                for j_idx, a2 in enumerate(self.group2):
-                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
-                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
-
-            boundary_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
 
         return boundary_force
 
@@ -202,22 +216,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        assert self.num_groups == 1
+        path_s = self._get_path_s_expression()
+        path_z = self._get_path_z_expression()
 
-        ref_distances = self._get_ref_dists()
-        num_frames = ref_distances.shape[0]
-        num_atoms1 = len(self.group1)
-        num_atoms2 = len(self.group2)
-
-        assert num_atoms1 > 0 and num_atoms2 > 0, "Both group1 and group2 must contain atoms."
-        num_pairs = num_atoms1 * num_atoms2
-
-        exp_terms = [f"exp(-lam * drmsd_{i})" for i in range(num_frames)]
-        num_terms = [f"{i + 1} * {term}" for i, term in enumerate(exp_terms)]
-        numerator = " + ".join(num_terms)
-        denominator = " + ".join(exp_terms)
-        path_s = f"({numerator}) / ({denominator})"
-        path_z = f"(-1.0 / lam * log({denominator})"
         self.restraining_expression = (
             f"0.5*k_{alias_id}*({path_s} - value_{alias_id})^2 + "
             f"0.5*k_z_{alias_id}*(max(0, {path_z} - z_cutoff_{alias_id}))^2"
@@ -225,20 +226,6 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         expression_w_bitcode = f"bitcode_{alias_id}*({self.restraining_expression})"
 
         restraining_force = openmm.CustomCVForce(expression_w_bitcode)
-        restraining_force.addGlobalParameter("lam", self.lambda_param)
-
-        for k in range(num_frames):
-            ref_dist_matrix = ref_distances[k]
-            #sub_force = openmm.CustomBondForce(f"(r - d0)^2 / {num_pairs}")
-            sub_force = openmm.CustomCompoundBondForce(2, f"(distance(p1,p2) - r0)^2 / {num_pairs}")
-            sub_force.addPerBondParameter("r0")
-
-            for i_idx, a1 in enumerate(self.group1):
-                for j_idx, a2 in enumerate(self.group2):
-                    #sub_force.addBond(int(a1), int(a2), [float(ref_dist_matrix[i_idx, j_idx])])
-                    sub_force.addBond([int(a1), int(a2)], [float(ref_dist_matrix[i_idx, j_idx])])
-
-            restraining_force.addCollectiveVariable(f"drmsd_{k}", sub_force)
         return restraining_force
 
     def make_cv_force(self, alias_id):
@@ -250,18 +237,21 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        path_me_cv = self.make_path_s_force()
-        path_neighbor_cv = self.make_path_s_force()
+        path_s_expression = self._get_path_s_expression()
+        path_s_sub_forces = self.make_path_sub_forces()
 
-        me_expr = f"(me_val_{self.index}_alias_{alias_id} - PATH_S)^2"
+        me_expr = f"(me_val_{self.index}_alias_{alias_id} - {path_s_expression})^2"
         me_force = openmm.CustomCVForce(me_expr)
         me_force.addGlobalParameter(f"me_val_{self.index}_alias_{alias_id}", me_val)
-        me_force.addCollectiveVariable("PATH_S", path_me_cv)
+        #me_force.addCollectiveVariable("PATH_S", path_me_cv)
 
-        neighbor_expr = f"(neighbor_val_{self.index}_alias_{alias_id} - PATH_S)^2"
+        neighbor_expr = f"(neighbor_val_{self.index}_alias_{alias_id} - {path_s_expression})^2"
         neighbor_force = openmm.CustomCVForce(neighbor_expr)
         neighbor_force.addGlobalParameter(f"neighbor_val_{self.index}_alias_{alias_id}", neighbor_val)
-        neighbor_force.addCollectiveVariable("PATH_S", path_neighbor_cv)
+        #neighbor_force.addCollectiveVariable("PATH_S", path_neighbor_cv)
+        for k in range(len(path_s_sub_forces)):
+            me_force.addCollectiveVariable(f"dmsd_{k}", path_s_sub_forces[k])
+            neighbor_force.addCollectiveVariable(f"dmsd_{k}", path_s_sub_forces[k])
 
         return me_force, neighbor_force
 
@@ -277,8 +267,10 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         return
 
     def add_parameters(self, force):
-        force.addCollectiveVariable("PATH_S", self.make_path_s_force())
-        force.addCollectiveVariable("PATH_Z", self.make_path_z_force())
+        force.addGlobalParameter("lam", self.lambda_param)
+        sub_forces = self.make_path_sub_forces()
+        for k in range(len(sub_forces)):
+            force.addCollectiveVariable(f"dmsd_{k}", sub_forces[k])
         return
 
     def add_groups_and_variables(self, force, variables, alias_id):
