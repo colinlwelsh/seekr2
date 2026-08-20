@@ -376,12 +376,12 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         coords1_curr = traj.xyz[frame_index, self.group1, :]
         coords2_curr = traj.xyz[frame_index, self.group2, :]
         diff_curr = coords1_curr[:, np.newaxis, :] - coords2_curr[np.newaxis, :, :]
-        current_dists = np.sqrt(np.sum(diff_curr ** 2, axis=-1))
+        current_dists = np.sum(diff_curr ** 2, axis=-1)
 
         drmsds = np.zeros(num_frames)
         for k in range(num_frames):
             ref_dists = ref_distances[k]
-            drmsds[k] = np.sqrt(np.mean((current_dists - ref_dists) ** 2))
+            drmsds[k] = np.mean((current_dists - ref_dists) ** 2)
 
         return drmsds
 
@@ -411,7 +411,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         pos2 = np.array([positions[i].value_in_unit(unit.nanometers) for i in self.group2])
         
         diff_curr = pos1[:, np.newaxis, :] - pos2[np.newaxis, :, :]
-        current_dists = np.sqrt(np.sum(diff_curr ** 2, axis=-1))
+        current_dists = np.sum(diff_curr ** 2, axis=-1)
 
         drmsds = []
         for k in range(ref_distances.shape[0]):
@@ -506,7 +506,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             coords1_ref = ref_traj.xyz[k, self.group1, :]
             coords2_ref = ref_traj.xyz[k, self.group2, :]
             diff_ref = coords1_ref[:, np.newaxis, :] - coords2_ref[np.newaxis, :, :]
-            ref_dists[k] = np.sqrt(np.sum(diff_ref ** 2, axis=-1))
+            ref_dists[k] = np.sum(diff_ref ** 2, axis=-1)
         return ref_dists
 
 
