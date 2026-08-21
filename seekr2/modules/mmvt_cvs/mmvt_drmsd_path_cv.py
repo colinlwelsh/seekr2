@@ -153,22 +153,23 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             p1_name = f"p{i+1}"
             for j in range(len(self.group2)):
                 p2_name = f"p{len(self.group1)+j+1}"
-                name = f"d_{p1_name}_{p2_name}"
-                distance_definitions.append(f"{name} = distance({p1_name}, {p2_name})")
+                #name = f"d_{p1_name}_{p2_name}"
+                #distance_definitions.append(f"{name} = distance({p1_name}, {p2_name})")
+                name = f"distance({p1_name},{p2_name})"
                 pair_names.append((name,i,j))
         dmsd_terms = []
         for k in range(num_frames):
             cross = " + ".join(f"{name}*{ref_distances[k,i,j]:.6f}" for name,i,j in pair_names)
             const_k = float(np.sum(ref_distances[k]**2)) / num_pairs
             sumsq   = " + ".join(f"{name}^2" for name,i,j in pair_names)
-            dmsd_terms.append(f"dmsd_{k} = (({sumsq} - 2*{cross})) / {num_pairs} + {const_k}")
+            dmsd_terms.append(f"dmsd_{k} = (({sumsq} - 2*{cross})) / {num_pairs} + {const_k:.6f}")
 
-        exp_terms = [f"e_{k} = exp(-lam * dmsd_{k})" for k in range(num_frames)]
+        exp_terms = [f"e_{k} = exp(-lam * dmsd_{k}); {dmsd_terms[k]}" for k in range(num_frames)]
         num_terms = [f"{k + 1} * e_{k}" for k in range(num_frames)]
         den_terms = [f"e_{k}" for k in range(num_frames)]
         numerator = " + ".join(num_terms)
         denominator = " + ".join(den_terms)
-        definition_str = "; ".join(distance_definitions + dmsd_terms + exp_terms)
+        definition_str = "; ".join(exp_terms)
         expression_str = f"({numerator}) / ({denominator})"
         return expression_str, definition_str
 
@@ -197,6 +198,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             f"step(k_{alias_id}*({path_s_expression} - value_{alias_id}))"
         )
         expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression}); {path_s_definitions}"
+        #print(expression_w_bitcode)
         all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
         num_particles = len(all_particles)
 
