@@ -48,8 +48,8 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self._path_s_definitions = None
         self._path_z_expression = None
         self.num_groups = 1
-        self.per_dof_variables = []
-        self.global_variables = ["k", "value", "k_z", "z_cutoff"]
+        self.per_dof_variables = ["k", "value", "k_z", "z_cutoff"]
+        self.global_variables = ["lam"]
         self._mygroup_list = None
         self.variable_name = "v"
         self._ref_distances = None
@@ -124,7 +124,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             cross = " + ".join(f"{name}*{ref_distances[k,i,j]:.6f}" for name,i,j in pair_names)
             const_k = float(np.sum(ref_distances[k]**2)) / num_pairs
             dmsd_term = f"({sumsq} - 2*({cross})) / {num_pairs} + {const_k:.6f}"
-            exp_terms.append(f"e_{k} = exp(-lam * {dmsd_term})")
+            exp_terms.append(f"e_{k} = exp(-lam * ({dmsd_term}))")
 
         num_terms = [f"{k + 1} * e_{k}" for k in range(num_frames)]
         den_terms = [f"e_{k}" for k in range(num_frames)]
@@ -156,9 +156,9 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         path_s_expression, path_s_definitions = self._get_path_s_expression()
 
         self.openmm_expression = (
-            f"step(k_{alias_id}*({path_s_expression} - value_{alias_id}))"
+            f"step(k*({path_s_expression} - value))"
         )
-        expression_w_bitcode = f"bitcode_{alias_id}*({self.openmm_expression}); {path_s_definitions}"
+        expression_w_bitcode = f"bitcode*({self.openmm_expression}); {path_s_definitions}"
         #print(expression_w_bitcode)
         all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
         num_particles = len(all_particles)
@@ -180,10 +180,10 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         num_particles = len(all_particles)
 
         self.restraining_expression = (
-            f"0.5*k_{alias_id}*({path_s_expression} - value_{alias_id})^2 + "
-            f"0.5*k_z_{alias_id}*(max(0, {path_z_expression} - z_cutoff_{alias_id}))^2"
+            f"0.5*k*({path_s_expression} - value)^2 + "
+            f"0.5*k_z*(max(0, {path_z_expression} - z_cutoff))^2"
         )
-        expression_w_bitcode = f"bitcode_{alias_id}*({self.restraining_expression}); {definitions}"
+        expression_w_bitcode = f"bitcode*({self.restraining_expression}); {definitions}"
 
         restraining_force = openmm.CustomCompoundBondForce(num_particles, expression_w_bitcode)
         return restraining_force
@@ -240,36 +240,25 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def add_parameters(self, force):
         force.addGlobalParameter("lam", self.lambda_param)
-        all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
-        force.addBond(all_particles, [])
+        force.addPerBondParameter("bitcode")
+        force.addPerBondParameter("k")
+        force.addPerBondParameter("value")
+        force.addPerBondParameter("k_z")
+        force.addPerBondParameter("z_cutoff")
         return ["lam"]
 
     def add_groups_and_variables(self, force, variables, alias_id):
-        if len(variables) >= 5:
-            force.addGlobalParameter(f"bitcode_{alias_id}", variables[0])
-            force.addGlobalParameter(f"k_{alias_id}", variables[1])
-            force.addGlobalParameter(f"value_{alias_id}", variables[2])
-            force.addGlobalParameter(f"k_z_{alias_id}", variables[3])
-            force.addGlobalParameter(f"z_cutoff_{alias_id}", variables[4])
-        elif len(variables) >= 3:
-            force.addGlobalParameter(f"bitcode_{alias_id}", variables[0])
-            force.addGlobalParameter(f"k_{alias_id}", variables[1])
-            force.addGlobalParameter(f"value_{alias_id}", variables[2])
-            force.addGlobalParameter(f"k_z_{alias_id}", 0.0)
-            force.addGlobalParameter(f"z_cutoff_{alias_id}", 999.0)
+        assert force.getNumBonds() == 0, \
+            "add_groups_and_variables cannot be called twice for the same CV."
+        all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
+        force.addBond(all_particles, variables)   # bitcode, k, value, k_z, z_cutoff as real per-bond values
         return
 
     def update_groups_and_variables(self, force, variables, alias_id, context):
-        if len(variables) >= 5:
-            context.setParameter(f"bitcode_{alias_id}", variables[0])
-            context.setParameter(f"k_{alias_id}", variables[1])
-            context.setParameter(f"value_{alias_id}", variables[2])
-            context.setParameter(f"k_z_{alias_id}", variables[3])
-            context.setParameter(f"z_cutoff_{alias_id}", variables[4])
-        elif len(variables) >= 3:
-            context.setParameter(f"bitcode_{alias_id}", variables[0])
-            context.setParameter(f"k_{alias_id}", variables[1])
-            context.setParameter(f"value_{alias_id}", variables[2])
+        all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
+        force.setBondParameters(0, all_particles, variables)
+        # NOTE: caller must call context.reinitialize() (or force.updateParametersInContext(context)
+        # if only per-bond *parameters*, not particle count, changed) after this
         return
 
     def get_variable_values_list(self, milestone):
