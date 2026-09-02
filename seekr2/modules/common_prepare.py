@@ -27,6 +27,7 @@ import seekr2.modules.mmvt_cvs.mmvt_count_contacts_cv as mmvt_count_contacts_cv
 import seekr2.modules.mmvt_cvs.mmvt_external_cv as mmvt_external_cv
 import seekr2.modules.mmvt_cvs.mmvt_z_distance_cv as mmvt_z_distance_cv
 import seekr2.modules.mmvt_cvs.mmvt_voronoi_cv as mmvt_voronoi_cv
+import seekr2.modules.mmvt_cvs.mmvt_drmsd_path_cv as mmvt_drmsd_path_cv
 import seekr2.modules.elber_cvs.elber_cv_base as elber_cv_base
 import seekr2.modules.elber_cvs.elber_spherical_cv as elber_spherical_cv
 import seekr2.modules.elber_cvs.elber_external_cv as elber_external_cv
@@ -720,6 +721,9 @@ def create_cvs(model, collective_variable_inputs, root_directory):
                 cv = mmvt_z_distance_cv.make_mmvt_z_distance_cv_object(cv_input, index=i)
             elif isinstance(cv_input, common_cv.Voronoi_cv_input):
                 cv = mmvt_voronoi_cv.make_mmvt_voronoi_cv_object(
+                    cv_input, index=i, root_directory=root_directory)
+            elif isinstance(cv_input, common_cv.dRMSD_path_cv_input):
+                cv = mmvt_drmsd_path_cv.make_mmvt_drmsd_path_cv_object(
                     cv_input, index=i, root_directory=root_directory)
             else:
                 raise Exception("CV type not implemented in MMVT: %s" \

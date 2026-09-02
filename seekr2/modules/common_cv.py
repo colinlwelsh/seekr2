@@ -2383,6 +2383,7 @@ class dRMSD_path_cv_input(CV_input):
         self.lambda_param = 1.0
         self.input_anchors = []
         self.variable_name = "s"
+        self.state_points = []
 
     def check(self):
         """
