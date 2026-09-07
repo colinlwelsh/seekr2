@@ -1017,7 +1017,8 @@ def generate_bd_files(model, rootdir):
         receptor_xml_filename = sim_browndye2.make_pqrxml(
             receptor_pqr_filename, 
             browndye2_bin=model.browndye_settings.browndye_bin_dir)
-        ligand_xml_filename = sim_browndye2.make_pqrxml(ligand_pqr_filename)
+        ligand_xml_filename = sim_browndye2.make_pqrxml(ligand_pqr_filename,
+            browndye2_bin=model.browndye_settings.browndye_bin_dir)
         debye_length, reaction_filename = \
             runner_browndye2.make_browndye_input_xml(
             model, rootdir, receptor_xml_filename, ligand_xml_filename,

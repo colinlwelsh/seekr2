@@ -372,12 +372,12 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             return False
 
         # Check Z upper bound if present in milestone definition
-        z_cutoff = milestone_variables.get("z_cutoff", milestone_variables.get("z_value", None))
-        if z_cutoff is not None:
-            if z_val - z_cutoff > tolerance:
-                if verbose:
-                    print(f"dRMSD Path Z value ({z_val:.4f}) exceeded cutoff ({z_cutoff:.4f}).")
-                return False
+        #z_cutoff = milestone_variables.get("z_cutoff", milestone_variables.get("z_value", None))
+        #if z_cutoff is not None:
+        #    if z_val - z_cutoff > tolerance:
+        #        if verbose:
+        #            print(f"dRMSD Path Z value ({z_val:.4f}) exceeded cutoff ({z_cutoff:.4f}).")
+        #        return False
 
         #print('check value function', value)
         return True

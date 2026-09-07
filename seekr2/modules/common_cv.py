@@ -17,6 +17,7 @@ from parmed import unit
 import seekr2.modules.common_base as base
 import seekr2.modules.mmvt_cvs.mmvt_cv_base as mmvt_cv_base
 import seekr2.modules.mmvt_cvs.mmvt_external_cv as mmvt_external_cv
+import seekr2.modules.mmvt_cvs.mmvt_spherical_cv as mmvt_spherical_cv
 import seekr2.modules.elber_cvs.elber_cv_base as elber_cv_base
 
 def create_anchor(model, anchor_index):
@@ -51,6 +52,9 @@ def assign_state_point(state_point, model):
             continue
         for milestone in anchor.milestones:
             cv = model.collective_variables[milestone.cv_index]
+            if cv.index >= len(state_point.location):
+                in_all_milestones = False
+                break
             if model.using_toy() and isinstance(cv, mmvt_external_cv.MMVT_external_CV):
                 result = cv.check_positions_within_boundary(
                     state_point.location[cv.index], milestone.variables)
@@ -107,6 +111,8 @@ class State_point(Serializer):
     def expand_state_point(self, cv_input):
         if isinstance(cv_input, Toy_cv_input):
             self.location = [self.location]
+        elif type(self.location) == list:
+            self.location = self.location
         else:
             self.location = [self.location]
         if isinstance(cv_input, Combo):
