@@ -316,7 +316,6 @@ colvar {{
         """
         milestone_k = milestone_variables["k"]
         milestone_radius = milestone_variables["radius"]
-        print(milestone_k*(radius - milestone_radius))
         if milestone_k*(radius - milestone_radius) > tolerance:
             if verbose:
                 warnstr = """The center of masses of atom group1 and atom
