@@ -107,6 +107,8 @@ class State_point(Serializer):
     def expand_state_point(self, cv_input):
         if isinstance(cv_input, Toy_cv_input):
             self.location = [self.location]
+        elif type(self.location) == list:
+            self.location = self.location
         else:
             self.location = [self.location]
         if isinstance(cv_input, Combo):
@@ -2383,6 +2385,7 @@ class dRMSD_path_cv_input(CV_input):
         self.lambda_param = 1.0
         self.input_anchors = []
         self.variable_name = "s"
+        self.state_points = []
 
     def check(self):
         """
