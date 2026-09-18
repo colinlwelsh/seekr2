@@ -2333,6 +2333,7 @@ class dRMSD_path_cv_anchor(CV_anchor):
         self.starting_charmm_params = None
         self.bound_state = False
         self.bulk_anchor = False
+        self.bd_n_needed = None
         self.connection_flags = []
 
     def check(self, j, cv_input):
@@ -2386,6 +2387,8 @@ class dRMSD_path_cv_input(CV_input):
         self.input_anchors = []
         self.variable_name = "s"
         self.state_points = []
+        self.bd_group1 = []
+        self.bd_group2 = []
 
     def check(self):
         """
@@ -2437,10 +2440,15 @@ class dRMSD_path_cv_input(CV_input):
         k_z = 0.5 * (getattr(input_anchor1, 'k_z', 0.0) + getattr(input_anchor2, 'k_z', 0.0))
 
         # Assign Z cutoff variables to newly created milestones
-        for anchor in [anchor1, anchor2]:
+        input_anchors = [input_anchor1, input_anchor2]
+        for i,anchor in enumerate([anchor1, anchor2]):
+            input_anchor = input_anchors[i]
             for ms in anchor.milestones:
                 if ms.index == current_ms_index:
                     ms.variables["z_cutoff"] = z_cutoff
                     ms.variables["k_z"] = k_z
+                    #ms.variables
+                    if input_anchor.bd_n_needed is not None:
+                        ms.variables["n_needed"] = input_anchor.bd_n_needed
 
         return next_ms_index

@@ -43,7 +43,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self.name = "mmvt_drmsd_path"
         self.openmm_expression = None
         self.restraining_expression = None
-        self.cv_expression = "PATH_S"
+        self.cv_expression = None
         self._path_s_expression = None
         self._path_s_definitions = None
         self._path_z_expression = None
@@ -262,6 +262,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         return
 
     def get_variable_values_list(self, milestone):
+        print('bbbb')
         assert milestone.cv_index == self.index
         values_list = []
         bitcode = 2**(milestone.alias_index - 1)
@@ -415,6 +416,11 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             ref_dists[k] = np.sqrt(np.sum(diff_ref ** 2, axis=-1))
         return ref_dists
 
+    def get_distances_at_value(self, value):
+        value_idx = int(np.floor(value)-1)
+        dists = self._get_ref_dists()
+        return dists[value_idx]
+
 def make_mmvt_drmsd_path_cv_object(drmsd_path_cv_input, index, root_directory):
     """
     Helper function to parse XML input and create an inter-group MMVT_dRMSD_Path_CV object.
@@ -431,7 +437,7 @@ def make_mmvt_drmsd_path_cv_object(drmsd_path_cv_input, index, root_directory):
         index=index,
         group1=group1,
         group2=group2,
-        ref_file=ref_file_basename,
+        ref_file=absolute_ref_file,
         lambda_param=drmsd_path_cv_input.lambda_param
     )
     return cv

@@ -148,6 +148,7 @@ class Browndye_settings_input(Serializer):
         self.receptor_indices = []
         self.ligand_indices = []
         self.n_threads = 1
+        self.make_ghost_atoms = True
 
 class Toy_settings_input(Serializer):
     """
@@ -505,6 +506,8 @@ def model_factory(model_input, use_absolute_directory=False):
             = model_input.browndye_settings_input.apbs_grid_spacing
         model.browndye_settings.n_threads \
             = model_input.browndye_settings_input.n_threads
+        model.browndye_settings.make_ghost_atoms \
+            = model_input.browndye_settings_input.make_ghost_atoms
         model.k_on_info = k_on_info
     
     if model_input.toy_settings_input is not None:
@@ -861,17 +864,14 @@ def create_bd_milestones(model, model_input):
             
             if model.get_type() == "mmvt":
                 bd_milestone.outer_milestone = anchor.milestones[0]
-                assert "radius" in bd_milestone.outer_milestone.variables,\
-                    "A BD outer milestone must be spherical."
+                #assert "radius" in bd_milestone.outer_milestone.variables,\
+                #    "A BD outer milestone must be spherical."
                 neighbor_anchor = model.anchors[
                     bd_milestone.outer_milestone.neighbor_anchor_index]
                 for neighbor_milestone in neighbor_anchor.milestones:
-                    if neighbor_milestone.index != \
-                            bd_milestone.outer_milestone.index:
-                        if neighbor_milestone.cv_index == \
-                                bd_milestone.outer_milestone.cv_index:
-                            bd_milestone.inner_milestone = \
-                                neighbor_milestone
+                    if neighbor_milestone.index != bd_milestone.outer_milestone.index:
+                        if neighbor_milestone.cv_index == bd_milestone.outer_milestone.cv_index:
+                            bd_milestone.inner_milestone = neighbor_milestone
                                 
                 assert bd_milestone.inner_milestone is not None, "No suitable "\
                     "spherical milestone found for inner BD reaction "\
@@ -887,19 +887,15 @@ def create_bd_milestones(model, model_input):
             cv_index = bd_milestone.outer_milestone.cv_index
             cv_input = model_input.cv_inputs[cv_index]
             if len(cv_input.bd_group1)>0:
-                bd_milestone.receptor_indices \
-                    = base.parse_xml_list(cv_input.bd_group1)
+                bd_milestone.receptor_indices = base.parse_xml_list(cv_input.bd_group1)
             else:
-                bd_milestone.receptor_indices  \
-                    = base.parse_xml_list(
+                bd_milestone.receptor_indices = base.parse_xml_list(
                         model_input.browndye_settings_input.receptor_indices)
             
             if len(cv_input.bd_group2)>0:
-                bd_milestone.ligand_indices \
-                    = base.parse_xml_list(cv_input.bd_group2)
+                bd_milestone.ligand_indices = base.parse_xml_list(cv_input.bd_group2)
             else:
-                bd_milestone.ligand_indices \
-                    = base.parse_xml_list(
+                bd_milestone.ligand_indices = base.parse_xml_list(
                         model_input.browndye_settings_input.ligand_indices)
             
             model.k_on_info.bd_milestones.append(bd_milestone)
@@ -988,19 +984,21 @@ def generate_bd_files(model, rootdir):
             b_surface_dir, model.browndye_settings.receptor_pqr_filename)
         ligand_pqr_filename = os.path.join(
             b_surface_dir, model.browndye_settings.ligand_pqr_filename)
+
         ghost_indices_rec = []
         ghost_indices_lig = []
-        for bd_milestone in model.k_on_info.bd_milestones:
-            #print("adding ghost atom to file:", receptor_pqr_filename)
-            ghost_index_rec = \
-                sim_browndye2.add_ghost_atom_to_pqr_from_atoms_center_of_mass(
-                    receptor_pqr_filename, bd_milestone.receptor_indices)
-            #print("adding ghost atom to file:", ligand_pqr_filename)
-            ghost_index_lig = \
-                sim_browndye2.add_ghost_atom_to_pqr_from_atoms_center_of_mass(
-                    ligand_pqr_filename, bd_milestone.ligand_indices)
-            ghost_indices_rec.append(ghost_index_rec)
-            ghost_indices_lig.append(ghost_index_lig)
+        if model.browndye_settings.make_ghost_atoms:
+            for bd_milestone in model.k_on_info.bd_milestones:
+                #print("adding ghost atom to file:", receptor_pqr_filename)
+                ghost_index_rec = \
+                    sim_browndye2.add_ghost_atom_to_pqr_from_atoms_center_of_mass(
+                        receptor_pqr_filename, bd_milestone.receptor_indices)
+                #print("adding ghost atom to file:", ligand_pqr_filename)
+                ghost_index_lig = \
+                    sim_browndye2.add_ghost_atom_to_pqr_from_atoms_center_of_mass(
+                        ligand_pqr_filename, bd_milestone.ligand_indices)
+                ghost_indices_rec.append(ghost_index_rec)
+                ghost_indices_lig.append(ghost_index_lig)
             
         model.browndye_settings.ghost_indices_rec = ghost_indices_rec
         model.browndye_settings.ghost_indices_lig = ghost_indices_lig
