@@ -1000,16 +1000,17 @@ def generate_bd_files(model, rootdir):
                 ghost_indices_rec.append(ghost_index_rec)
                 ghost_indices_lig.append(ghost_index_lig)
         else:
-            ligand_numbers = []
-            receptor_numbers = []
-            for atom_idx in bd_milestone.ligand_indices:
-                ligand_numbers.append(atom_idx + 1)
-            for atom_idx in bd_milestone.receptor_indices:
-                receptor_numbers = atom_idx + 1
-            bd_milestone.ligand_indices = ligand_numbers
-            bd_milestone.receptor_indices = receptor_numbers
-            warning_msg = "WARNING: Renumbering BD ligand and receptor atom indices to atom numbers (input indices+1)"
-            pritn(warning_msg)
+            for bd_milestone in model.k_on_info.bd_milestones:
+                ligand_numbers = []
+                receptor_numbers = []
+                for atom_idx in bd_milestone.ligand_indices:
+                    ligand_numbers.append(atom_idx + 1)
+                for atom_idx in bd_milestone.receptor_indices:
+                    receptor_numbers.append(atom_idx + 1)
+                bd_milestone.ligand_indices = ligand_numbers
+                bd_milestone.receptor_indices = receptor_numbers
+                warning_msg = "WARNING: Renumbering BD ligand and receptor atom indices to atom numbers (input indices+1)"
+                print(warning_msg)
             
         model.browndye_settings.ghost_indices_rec = ghost_indices_rec
         model.browndye_settings.ghost_indices_lig = ghost_indices_lig
