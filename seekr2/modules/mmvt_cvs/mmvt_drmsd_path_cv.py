@@ -262,7 +262,6 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         return
 
     def get_variable_values_list(self, milestone):
-        print('bbbb')
         assert milestone.cv_index == self.index
         values_list = []
         bitcode = 2**(milestone.alias_index - 1)
