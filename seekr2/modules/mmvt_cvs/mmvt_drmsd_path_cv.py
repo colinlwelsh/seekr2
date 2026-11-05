@@ -43,7 +43,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self.name = "mmvt_drmsd_path"
         self.openmm_expression = None
         self.restraining_expression = None
-        self.cv_expression = "PATH_S"
+        self.cv_expression = None
         self._path_s_expression = None
         self._path_s_definitions = None
         self._path_z_expression = None
@@ -406,7 +406,11 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
     
     def get_reference_distances(self):
         """Loads reference PDB trajectory once to precalculate pairwise distance matrices."""
-        assert os.path.exists(self.ref_file), f"File {self.ref_file} does not exist."
+        #assert os.path.exists(self.ref_file), f"File {self.ref_file} does not exist."
+        assert os.path.exists(self.ref_file), \
+            "File {} does not exist. Make sure ".format(self.ref_file) \
+            +"that any programs using the get_mdtraj_cv_value() method " \
+            "within an API is performed in the model directory."
         ref_traj = mdtraj.load(self.ref_file)
         ref_dists = np.zeros(shape=(ref_traj.n_frames, len(self.group1), len(self.group2)))
         for k in range(ref_traj.n_frames):
@@ -415,6 +419,11 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             diff_ref = coords1_ref[:, np.newaxis, :] - coords2_ref[np.newaxis, :, :]
             ref_dists[k] = np.sqrt(np.sum(diff_ref ** 2, axis=-1))
         return ref_dists
+
+    def get_distances_at_value(self, value):
+        value_idx = int(np.floor(value)-1)
+        dists = self._get_ref_dists()
+        return dists[value_idx]
 
 def make_mmvt_drmsd_path_cv_object(drmsd_path_cv_input, index, root_directory):
     """

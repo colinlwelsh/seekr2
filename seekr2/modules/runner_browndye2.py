@@ -207,65 +207,112 @@ def make_browndye_reaction_xml(model, abs_reaction_path):
     ghost_indices_lig = model.browndye_settings.ghost_indices_lig
     
     for i, bd_milestone2 in enumerate(model.k_on_info.bd_milestones):
-        ghost_index_rec = ghost_indices_rec[i] # comes from the model?
-        ghost_index_lig = ghost_indices_lig[i]
         rxn_outer = sim_browndye2.Reaction()
-        pair1 = sim_browndye2.Pair()
         from_state = "b"
         to_state = str(bd_milestone2.outer_milestone.index)
         rxn_outer.name = "{}_{}".format(from_state, to_state)
         rxn_outer.state_after = str(bd_milestone2.outer_milestone.index)
-        pair1.distance = bd_milestone2.outer_milestone.variables['radius'] * 10.0
         rxn_outer.state_before = rxnroot.first_state
         rxn_outer.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
         rxn_outer.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
         rxn_outer.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
         rxn_outer.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
-        rxn_outer.n_needed = 1
-        pair1.atom1_index = ghost_index_rec
-        pair1.atom2_index = ghost_index_lig
-        rxn_outer.pair_list.append(pair1)
+
+        cv = bd_milestone2.inner_milestone.get_CV(model)
+        if cv.name == "mmvt_drmsd_path":
+            lig_indices = bd_milestone2.ligand_indices
+            rec_indices = bd_milestone2.receptor_indices
+            pair_dists = cv.get_distances_at_value(bd_milestone2.outer_milestone.variables['value'])
+            for d_i,lig_idx in enumerate(lig_indices):
+                for d_j,rec_idx in enumerate(rec_indices):
+                    pair1 = sim_browndye2.Pair()
+                    pair1.distance = pair_dists[d_i][d_j] * 10
+                    pair1.atom1_index = rec_idx
+                    pair1.atom2_index = lig_idx
+                    rxn_outer.pair_list.append(pair1)
+            rxn_outer.n_needed = bd_milestone2.outer_milestone.variables['n_needed']
+
+        else:
+            #ghost_index_rec = ghost_indices_rec[i] # comes from the model?
+            #ghost_index_lig = ghost_indices_lig[i]
+            pair1 = sim_browndye2.Pair()
+            pair1.distance = bd_milestone2.outer_milestone.variables['radius'] * 10.0
+            pair1.atom1_index = ghost_indices_rec[i]
+            pair1.atom2_index = ghost_indices_lig[i]
+            rxn_outer.pair_list.append(pair1)
+            rxn_outer.n_needed = 1
+
         rxnroot.reaction_list.append(rxn_outer)
         
         rxn_inner = sim_browndye2.Reaction()
-        pair2 = sim_browndye2.Pair()
         from_state = str(bd_milestone2.outer_milestone.index)
         to_state = str(bd_milestone2.inner_milestone.index)
         rxn_inner.name = "{}_{}".format(from_state, to_state)
         rxn_inner.state_after = str(bd_milestone2.inner_milestone.index)
-        pair2.distance = bd_milestone2.inner_milestone.variables['radius'] * 10.0
         rxn_inner.state_before = str(bd_milestone2.outer_milestone.index)
         rxn_inner.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
         rxn_inner.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
         rxn_inner.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
         rxn_inner.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
-        rxn_inner.n_needed = 1
-        pair2.atom1_index = ghost_index_rec
-        pair2.atom2_index = ghost_index_lig
-        rxn_inner.pair_list.append(pair2)
+
+        if cv.name == "mmvt_drmsd_path":
+            lig_indices = bd_milestone2.ligand_indices
+            rec_indices = bd_milestone2.receptor_indices
+            pair_dists = cv.get_distances_at_value(bd_milestone2.inner_milestone.variables['value'])
+            for d_i,lig_idx in enumerate(lig_indices):
+                for d_j,rec_idx in enumerate(rec_indices):
+                    pair2 = sim_browndye2.Pair()
+                    pair2.distance = pair_dists[d_i][d_j] * 10
+                    pair2.atom1_index = rec_idx
+                    pair2.atom2_index = lig_idx
+                    rxn_inner.pair_list.append(pair2)
+            rxn_inner.n_needed = bd_milestone2.inner_milestone.variables['n_needed']
+        else:
+            pair2 = sim_browndye2.Pair()
+            pair2.distance = bd_milestone2.inner_milestone.variables['radius'] * 10.0
+            #pair2.atom1_index = ghost_index_rec
+            #pair2.atom2_index = ghost_index_lig
+            pair2.atom1_index = ghost_indices_rec[i]
+            pair2.atom2_index = ghost_indices_lig[i]
+            rxn_inner.n_needed = 1
+            rxn_inner.pair_list.append(pair2)
         rxnroot.reaction_list.append(rxn_inner)
         
         for j, bd_milestone3 in enumerate(model.k_on_info.bd_milestones):
             if bd_milestone2.index == bd_milestone3.index:
                 continue
             rxn_other = sim_browndye2.Reaction()
-            pair3 = sim_browndye2.Pair()
             from_state = str(bd_milestone2.outer_milestone.index)
             to_state = str(bd_milestone3.outer_milestone.index)
             rxn_other.name = "{}_{}".format(from_state, to_state)
             rxn_other.state_after = str(bd_milestone3.outer_milestone.index)
-            pair3.distance = bd_milestone3.outer_milestone.variables['radius'] * 10.0
             rxn_other.state_before = str(bd_milestone2.outer_milestone.index)
             rxn_other.molecule0_group = sim_browndye2.BROWNDYE_RECEPTOR
             rxn_other.molecule0_core = sim_browndye2.BROWNDYE_RECEPTOR
             rxn_other.molecule1_group = sim_browndye2.BROWNDYE_LIGAND
             rxn_other.molecule1_core = sim_browndye2.BROWNDYE_LIGAND
-            rxn_other.n_needed = 1
-            other_ghost_index_rec = ghost_indices_rec[j] # comes from the model?
-            other_ghost_index_lig = ghost_indices_lig[j]
-            pair3.atom1_index = other_ghost_index_rec
-            pair3.atom2_index = other_ghost_index_lig
-            rxn_other.pair_list.append(pair3)
+            if cv.name == "mmvt_drmsd_path":
+                lig_indices = bd_milestone3.ligand_indices
+                rec_indices = bd_milestone3.receptor_indices
+                pair_dists = cv.get_distances_at_value(bd_milestone3.outer_milestone.variables['value'])
+                for d_i,lig_idx in enumerate(lig_indices):
+                    for d_j,rec_idx in enumerate(rec_indices):
+                        pair3 = sim_browndye2.Pair()
+                        pair3.distance = pair_dists[d_i][d_j] * 10
+                        pair3.atom1_index = rec_idx
+                        pair3.atom2_index = lig_idx
+                        rxn_other.pair_list.append(pair3)
+                rxn_other.n_needed = model.browndye_settings.n_needed
+                rxn_other.n_needed = bd_milestone3.outer_milestone.variables['n_needed']
+            else:
+                pair3 = sim_browndye2.Pair()
+                pair3.distance = bd_milestone3.outer_milestone.variables['radius'] * 10.0
+                other_ghost_index_rec = ghost_indices_rec[j] # comes from the model?
+                other_ghost_index_lig = ghost_indices_lig[j]
+                pair3.atom1_index = other_ghost_index_rec
+                pair3.atom2_index = other_ghost_index_lig
+                rxn_other.n_needed = 1
+                rxn_other.pair_list.append(pair3)
             rxnroot.reaction_list.append(rxn_other)
         
     rxnroot.write(abs_reaction_path)

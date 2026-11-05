@@ -876,6 +876,7 @@ class BD_milestone(Serializer):
         #self.num_trajectories = -1
         self.receptor_indices = []
         self.ligand_indices = []
+        self.n_needed = []
         # TODO: remove
         #self.extracted_directory = "extracted_from_b_surface"
         #self.fhpd_directory = "first_hitting_point_distribution"
