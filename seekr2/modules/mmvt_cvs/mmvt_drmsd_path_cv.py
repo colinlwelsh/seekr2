@@ -39,6 +39,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self.group2 = group2
         self.ref_file = ref_file
         self.lambda_param = float(lambda_param)
+        self.lambda_var = f"lam_{self.index}"
             
         self.name = "mmvt_drmsd_path"
         self.openmm_expression = None
@@ -49,7 +50,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         self._path_z_expression = None
         self.num_groups = 1
         self.per_dof_variables = ["k", "value", "k_z", "z_cutoff"]
-        self.global_variables = ["lam"]
+        self.global_variables = [self.lambda_var]
         self._mygroup_list = None
         self.variable_name = "v"
         self._ref_distances = None
@@ -92,14 +93,34 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         except ImportError:
             import simtk.openmm as openmm
 
-        num_frames = self._get_ref_dists().shape[0]
+        ref_distances = self._get_ref_dists()
+        num_frames = ref_distances.shape[0]
+        num_pairs = len(self.group1) * len(self.group2)
+
+        distance_terms = []
+        pair_names = []
+        for i in range(len(self.group1)):
+            p1_name = f"p{i+1}"
+            for j in range(len(self.group2)):
+                p2_name = f"p{len(self.group1)+j+1}"
+                name = f"distance({p1_name}, {p2_name})"
+                pair_names.append((name,i,j))
+
+        exp_terms = []
+        sumsq   = " + ".join(f"{name}^2" for name,i,j in pair_names)
+        for k in range(num_frames):
+            cross = " + ".join(f"{name}*{ref_distances[k,i,j]:.6f}" for name,i,j in pair_names)
+            const_k = float(np.sum(ref_distances[k]**2)) / num_pairs
+            dmsd_term = f"({sumsq} - 2*({cross})) / {num_pairs} + {const_k:.6f}"
+            exp_terms.append(f"e_{k} = exp(-{self.lambda_var} * ({dmsd_term}))")
 
         den_terms = [f"e_{k}" for k in range(num_frames)]
         denominator = " + ".join(den_terms)
-        expression = f"(-1.0 / lam * log({denominator}))"
-        return expression
+        definition_str = "; ".join(exp_terms)
+        expression_str = f"(-1.0 / {self.lambda_var} * log({denominator}))"
+        return expression_str, definition_str
 
-    def make_path_s_expression(self):
+    def make_path_s_expression(self, var_tol=0.005):
         try:
             import openmm
         except ImportError:
@@ -124,7 +145,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
             cross = " + ".join(f"{name}*{ref_distances[k,i,j]:.6f}" for name,i,j in pair_names)
             const_k = float(np.sum(ref_distances[k]**2)) / num_pairs
             dmsd_term = f"({sumsq} - 2*({cross})) / {num_pairs} + {const_k:.6f}"
-            exp_terms.append(f"e_{k} = exp(-lam * ({dmsd_term}))")
+            exp_terms.append(f"e_{k} = exp(-{self.lambda_var} * ({dmsd_term}))")
 
         num_terms = [f"{k + 1} * e_{k}" for k in range(num_frames)]
         den_terms = [f"e_{k}" for k in range(num_frames)]
@@ -215,14 +236,14 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         me_expr = f"({me_param} - {path_s_expression})^2; {path_s_definitions}"
         me_force = openmm.CustomCompoundBondForce(num_particles, me_expr)
         me_force.addGlobalParameter(me_param, me_val)
-        me_force.addGlobalParameter("lam", self.lambda_param)
+        me_force.addGlobalParameter(self.lambda_var, self.lambda_param)
         me_force.addBond(all_particles, [])
 
         neighbor_param = f"neighbor_val_{self.index}_alias_{alias_id}"
         neighbor_expr = f"({neighbor_param} - {path_s_expression})^2; {path_s_definitions}"
         neighbor_force = openmm.CustomCompoundBondForce(num_particles, neighbor_expr)
         neighbor_force.addGlobalParameter(neighbor_param, neighbor_val)
-        neighbor_force.addGlobalParameter("lam", self.lambda_param)
+        neighbor_force.addGlobalParameter(self.lambda_var, self.lambda_param)
         neighbor_force.addBond(all_particles, [])
 
         return me_force, neighbor_force
@@ -239,13 +260,13 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         return
 
     def add_parameters(self, force):
-        force.addGlobalParameter("lam", self.lambda_param)
+        force.addGlobalParameter(self.lambda_var, self.lambda_param)
         force.addPerBondParameter("bitcode")
         force.addPerBondParameter("k")
         force.addPerBondParameter("value")
         force.addPerBondParameter("k_z")
         force.addPerBondParameter("z_cutoff")
-        return ["lam"]
+        return [self.lambda_var]
 
     def add_groups_and_variables(self, force, variables, alias_id):
         assert force.getNumBonds() == 0, \

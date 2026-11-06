@@ -13,6 +13,7 @@ from scipy.spatial import Delaunay, Voronoi
 from scipy.spatial import qhull
 from abserdes import Serializer
 from parmed import unit
+import warnings
 
 import seekr2.modules.common_base as base
 import seekr2.modules.mmvt_cvs.mmvt_cv_base as mmvt_cv_base
@@ -2452,3 +2453,291 @@ class dRMSD_path_cv_input(CV_input):
                         ms.variables["n_needed"] = input_anchor.bd_n_needed
 
         return next_ms_index
+
+class Path_combo(Combo):
+    """
+    An object for input defining a multidimensional arrangement (Combo) of 
+    Path CVs (such as dRMSD_path_cv_input or Path_cv_input).
+
+    Allows assigning starting coordinates to every CV value pair / grid anchor,
+    and checks for atom group overlaps across combined path CVs.
+
+    Attributes
+    ----------
+    cv_inputs : list of CV_input
+        List of path CV input objects to combine.
+    state_points : list
+        List of State_point objects, if any.
+    starting_amber_params : dict or list
+        Mapping of CV value pairs `(s1, s2, ...)` or index pairs `(i, j, ...)` 
+        to `Amber_params` objects.
+    starting_forcefield_params : dict or list
+        Mapping to `Forcefield_params` objects.
+    starting_charmm_params : dict or list
+        Mapping to `Charmm_params` objects.
+    starting_positions : dict or list
+        Mapping to starting coordinate arrays (for toy models).
+    starting_structures : dict or list
+        General structure dictionary fallback.
+    """
+    def __init__(self):
+        super(Path_combo, self).__init__()
+        self.cv_inputs = []
+        self.state_points = []
+        self.starting_amber_params = {}
+        self.starting_forcefield_params = {}
+        self.starting_charmm_params = {}
+        self.starting_positions = {}
+        self.starting_structures = {}
+        return
+
+    def check_atom_group_overlap(self):
+        """
+        Checks for overlapping atom indices between groups (group1, group2, group, etc.)
+        across all path CVs in this combo, as well as within individual path CVs.
+        Prints and issues a warning if overlaps are detected.
+        """
+        def _extract_groups(cv):
+            groups_dict = {}
+            for attr in ["group1", "group2", "group", "align_group"]:
+                if hasattr(cv, attr):
+                    val = getattr(cv, attr)
+                    if val is not None and len(val) > 0:
+                        if isinstance(val, str):
+                            parsed = base.parse_xml_list(val)
+                        else:
+                            parsed = val
+                        groups_dict[attr] = [int(a) for a in parsed]
+            if hasattr(cv, "groups") and cv.groups:
+                for idx, g in enumerate(cv.groups):
+                    if g is not None and len(g) > 0:
+                        if isinstance(g, str):
+                            parsed = base.parse_xml_list(g)
+                        else:
+                            parsed = g
+                        groups_dict[f"group_{idx}"] = [int(a) for a in parsed]
+            return groups_dict
+
+        num_cvs = len(self.cv_inputs)
+        for i in range(num_cvs):
+            cv_i = self.cv_inputs[i]
+            groups_i = _extract_groups(cv_i)
+            
+            # Check within the same CV
+            group_names_i = list(groups_i.keys())
+            for g1_idx in range(len(group_names_i)):
+                for g2_idx in range(g1_idx + 1, len(group_names_i)):
+                    n1 = group_names_i[g1_idx]
+                    n2 = group_names_i[g2_idx]
+                    set1 = set(groups_i[n1])
+                    set2 = set(groups_i[n2])
+                    overlap = set1.intersection(set2)
+                    if len(overlap) > 0:
+                        msg = (
+                            f"WARNING: Atom group overlap detected within Path CV {i} "
+                            f"({n1} and {n2}). Overlapping atom indices: {sorted(list(overlap))}"
+                        )
+                        print(msg)
+                        warnings.warn(msg, UserWarning)
+
+            # Check across different CVs
+            for j in range(i + 1, num_cvs):
+                cv_j = self.cv_inputs[j]
+                groups_j = _extract_groups(cv_j)
+                for n1, g1 in groups_i.items():
+                    for n2, g2 in groups_j.items():
+                        set1 = set(g1)
+                        set2 = set(g2)
+                        overlap = set1.intersection(set2)
+                        if len(overlap) > 0:
+                            msg = (
+                                f"WARNING: Atom group overlap detected between Path CV {i} ({n1}) "
+                                f"and Path CV {j} ({n2}). Overlapping atom indices: {sorted(list(overlap))}"
+                            )
+                            print(msg)
+                            warnings.warn(msg, UserWarning)
+
+    def check(self):
+        """
+        Check user inputs and verify atom group overlaps.
+        """
+        assert len(self.cv_inputs) > 0, "Path_combo must contain at least one CV input."
+        for cv_input in self.cv_inputs:
+            cv_input.check()
+        self.check_atom_group_overlap()
+
+    def _lookup_starting_param(self, param_store, idx_tuple, val_tuple):
+        """
+        Look up starting parameters by value tuple, index tuple, matrix/grid, or dictionary key.
+        """
+        if not param_store:
+            return None
+
+        if isinstance(param_store, dict):
+            keys_to_check = [
+                val_tuple,
+                idx_tuple,
+                tuple(round(v, 4) if isinstance(v, (float, int)) else v for v in val_tuple),
+                str(val_tuple),
+                str(idx_tuple),
+            ]
+            if len(val_tuple) == 1:
+                keys_to_check.extend([val_tuple[0], idx_tuple[0]])
+
+            for key in keys_to_check:
+                if key in param_store:
+                    return param_store[key]
+
+        elif isinstance(param_store, (list, tuple)):
+            curr = param_store
+            try:
+                for idx in idx_tuple:
+                    curr = curr[idx]
+                return curr
+            except (IndexError, TypeError):
+                pass
+
+        return None
+
+    def make_anchors(self, model, anchor_index, milestone_index, 
+                     connection_flag_dict, associated_input_anchor):
+        assert model.get_type() == "mmvt", \
+            "Only MMVT models may use combos."
+
+        self.check_atom_group_overlap()
+
+        anchors = []
+        num_anchors = 1
+        cv_widths = []
+        for cv_input in self.cv_inputs:
+            cv_width = len(cv_input.input_anchors)
+            cv_widths.append(cv_width)
+            num_anchors *= cv_width
+            for j, input_anchor in enumerate(cv_input.input_anchors):
+                input_anchor.check(j, cv_input)
+
+        for i in range(num_anchors):
+            anchor = create_anchor(model, anchor_index)
+            input_anchor_index_list = []
+            input_anchor_list = []
+
+            divider = 1
+            bulkstate = False
+            endstate = False
+            for j, cv_input in enumerate(self.cv_inputs):
+                input_anchor_index = (i // divider) % cv_widths[j]
+                input_anchor_index_list.append(input_anchor_index)
+                divider *= cv_widths[j]
+                input_anchor = cv_input.input_anchors[input_anchor_index]
+                input_anchor_list.append(input_anchor)
+                if input_anchor.bulk_anchor:
+                    bulkstate = True
+                if input_anchor.bound_state:
+                    endstate = True
+
+                variable_name = "{}_{}".format(cv_input.variable_name, cv_input.index)
+                variable_value = input_anchor.get_variable_value()
+                anchor.variables[variable_name] = variable_value
+
+            idx_tuple = tuple(input_anchor_index_list)
+            val_tuple = tuple(inp_anc.get_variable_value() for inp_anc in input_anchor_list)
+
+            # Retrieve starting parameters for this specific CV value pair
+            starting_amber = self._lookup_starting_param(self.starting_amber_params, idx_tuple, val_tuple)
+            starting_ff = self._lookup_starting_param(self.starting_forcefield_params, idx_tuple, val_tuple)
+            starting_charmm = self._lookup_starting_param(self.starting_charmm_params, idx_tuple, val_tuple)
+            starting_pos = self._lookup_starting_param(self.starting_positions, idx_tuple, val_tuple)
+            starting_struct = self._lookup_starting_param(self.starting_structures, idx_tuple, val_tuple)
+
+            if starting_amber is None and starting_struct is not None:
+                if hasattr(starting_struct, "prmtop_filename"):
+                    starting_amber = starting_struct
+                elif hasattr(starting_struct, "forcefield_filenames"):
+                    starting_ff = starting_struct
+                elif hasattr(starting_struct, "psf_filename"):
+                    starting_charmm = starting_struct
+                else:
+                    starting_pos = starting_struct
+
+            # Fallback to individual input anchors if specified
+            if starting_amber is None:
+                for inp_anc in input_anchor_list:
+                    if hasattr(inp_anc, "starting_amber_params") and inp_anc.starting_amber_params is not None:
+                        starting_amber = inp_anc.starting_amber_params
+                        break
+            if starting_ff is None:
+                for inp_anc in input_anchor_list:
+                    if hasattr(inp_anc, "starting_forcefield_params") and inp_anc.starting_forcefield_params is not None:
+                        starting_ff = inp_anc.starting_forcefield_params
+                        break
+            if starting_charmm is None:
+                for inp_anc in input_anchor_list:
+                    if hasattr(inp_anc, "starting_charmm_params") and inp_anc.starting_charmm_params is not None:
+                        starting_charmm = inp_anc.starting_charmm_params
+                        break
+            if starting_pos is None:
+                for inp_anc in input_anchor_list:
+                    if hasattr(inp_anc, "starting_positions") and inp_anc.starting_positions is not None:
+                        starting_pos = inp_anc.starting_positions
+                        break
+
+            # Create dummy input anchor object for model building file trees
+            if isinstance(input_anchor_list[0], dRMSD_path_cv_anchor):
+                combo_input_anchor = dRMSD_path_cv_anchor()
+            else:
+                combo_input_anchor = Path_cv_anchor()
+
+            combo_input_anchor.starting_amber_params = starting_amber
+            combo_input_anchor.starting_forcefield_params = starting_ff
+            combo_input_anchor.starting_charmm_params = starting_charmm
+            combo_input_anchor.starting_positions = starting_pos
+
+            anchor.amber_params = starting_amber
+            anchor.forcefield_params = starting_ff
+            anchor.charmm_params = starting_charmm
+            anchor.starting_positions = starting_pos
+
+            associated_input_anchor[anchor.index] = combo_input_anchor
+
+            if not bulkstate:
+                anchor.md = True
+            else:
+                anchor.md = False
+                anchor.bulkstate = True
+
+            if endstate:
+                anchor.endstate = True
+
+            for inp_anc in input_anchor_list:
+                assert len(inp_anc.connection_flags) == 0, \
+                    "Connection flags within combos not currently supported."
+
+            anchors.append(anchor)
+            anchor_index += 1
+
+        for i, anchor in enumerate(anchors):
+            divider = 1
+            for j, cv_input in enumerate(self.cv_inputs):
+                input_anchor_index = (i // divider) % cv_widths[j]
+                this_input_anchor = cv_input.input_anchors[input_anchor_index]
+
+                if input_anchor_index < len(cv_input.input_anchors) - 1:
+                    upper_anchor_index = i + divider
+                    upper_anchor = anchors[upper_anchor_index]
+                    upper_input_anchor = cv_input.input_anchors[input_anchor_index + 1]
+                    milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
+                        anchor, upper_anchor, this_input_anchor, upper_input_anchor, milestone_index)
+
+                if input_anchor_index > 0:
+                    lower_anchor_index = i - divider
+                    lower_anchor = anchors[lower_anchor_index]
+                    lower_input_anchor = cv_input.input_anchors[input_anchor_index - 1]
+                    milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
+                        lower_anchor, anchor, lower_input_anchor, this_input_anchor, milestone_index)
+
+                divider *= cv_widths[j]
+
+            if anchor.bulkstate:
+                connection_flag_dict["bulk"].append(anchor)
+
+        return anchors, anchor_index, milestone_index, connection_flag_dict, associated_input_anchor
