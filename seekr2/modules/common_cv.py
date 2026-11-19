@@ -113,13 +113,16 @@ class State_point(Serializer):
         else:
             self.location = [self.location]
         if isinstance(cv_input, Combo):
-            old_location = self.location[0]
+            if len(self.location) == 1 and isinstance(self.location[0], (list, tuple)):
+                old_location = self.location[0]
+            else:
+                old_location = list(self.location)
             self.location = []
-            for inner_cv_input in cv_input.cv_inputs:
+            for idx, inner_cv_input in enumerate(cv_input.cv_inputs):
                 if isinstance(inner_cv_input, Toy_cv_input):
                     self.location.append(old_location)
                 else:
-                    self.location = old_location
+                    self.location.append(old_location[idx])
         
         return
 
@@ -2306,16 +2309,12 @@ class Path_cv_input(CV_input):
 class dRMSD_path_cv_anchor(CV_anchor):
     """
     Anchor object for an inter-group dRMSD Path CV.
-    Tracks path progress s and enforces an upper bound cutoff on orthogonal distance z.
+    Tracks either path progress s (cv_type='s') or orthogonal distance z (cv_type='z').
     
     Attributes:
     -----------
     value : float
         The path progress parameter (s-value) for this anchor.
-    z_cutoff : float
-        The maximum allowed orthogonal distance (z-value off path) for this anchor.
-    k_z : float
-        Restraining force constant applied when z exceeds z_cutoff.
     lower_milestone_value : float or None
         Defined lower milestone location for path progress s.
     upper_milestone_value : float or None
@@ -2325,24 +2324,19 @@ class dRMSD_path_cv_anchor(CV_anchor):
         super().__init__()
         self.name = None
         self.value = 0.0
-        self.z_cutoff = 999.0
-        self.k_z = 0.0
         self.lower_milestone_value = None
         self.upper_milestone_value = None
         self.starting_amber_params = None
         self.starting_forcefield_params = None
         self.starting_charmm_params = None
+        self.starting_positions = None
         self.bound_state = False
         self.bulk_anchor = False
         self.bd_n_needed = None
         self.connection_flags = []
 
     def check(self, j, cv_input):
-        """
-        Verify that lower and upper milestone values match neighbor anchors,
-        and validate z_cutoff parameters.
-        """
-        assert self.z_cutoff >= 0.0, f"z_cutoff for anchor {j} must be non-negative."
+        """Verify that lower and upper milestone values match neighbor anchors."""
 
         if self.lower_milestone_value is not None:
             assert j > 0, "lower_milestone_value must be None for lowest anchor."
@@ -2385,6 +2379,7 @@ class dRMSD_path_cv_input(CV_input):
         self.group2 = []
         self.ref_file = ""
         self.lambda_param = 1.0
+        self.cv_type = "s"
         self.input_anchors = []
         self.variable_name = "s"
         self.state_points = []
@@ -2398,6 +2393,13 @@ class dRMSD_path_cv_input(CV_input):
         assert len(self.group1) > 0, "Group1 (ligand) must contain at least 1 atom."
         assert len(self.group2) > 0, "Group2 (protein) must contain at least 1 atom."
         assert self.ref_file != "", "Must supply a valid reference trajectory/PDB file path."
+        assert self.cv_type.lower() in ["s", "z"], \
+            f"Invalid cv_type '{self.cv_type}'. Must be 's' or 'z'."
+
+        if self.cv_type.lower() == "z" and self.variable_name in [None, "", "s"]:
+            self.variable_name = "z"
+        elif self.cv_type.lower() == "s" and self.variable_name in [None, ""]:
+            self.variable_name = "s"
 
         last_value = -1e9
         found_bulk_anchor = False
@@ -2407,8 +2409,8 @@ class dRMSD_path_cv_input(CV_input):
                 "Anchors for dRMSD_path_cv_input must be instances of dRMSD_path_cv_anchor."
             
             value = input_anchor.value
-            assert value > last_value, "Anchor path values (s) must be strictly increasing."
-            assert input_anchor.z_cutoff >= 0.0, "z_cutoff must be greater than or equal to zero."
+            assert value > last_value, \
+                f"Anchor path values ({self.cv_type}) must be strictly increasing."
 
             if input_anchor.bound_state is None:
                 input_anchor.bound_state = False
@@ -2428,27 +2430,25 @@ class dRMSD_path_cv_input(CV_input):
 
     def make_mmvt_milestone_between_two_anchors(
             self, anchor1, anchor2, input_anchor1, input_anchor2, milestone_index):
-        """
-        Constructs MMVT milestone between two anchors and attaches both S boundary 
-        value and Z upper cutoff variables.
-        """
+        """Constructs MMVT milestone between two anchors and attaches boundary S or Z values"""
         current_ms_index = milestone_index
         next_ms_index = super().make_mmvt_milestone_between_two_anchors(
             anchor1, anchor2, input_anchor1, input_anchor2, milestone_index)
 
-        # Interpolate z_cutoff and k_z at the milestone interface
-        z_cutoff = 0.5 * (input_anchor1.z_cutoff + input_anchor2.z_cutoff)
-        k_z = 0.5 * (getattr(input_anchor1, 'k_z', 0.0) + getattr(input_anchor2, 'k_z', 0.0))
+        # Ensure custom milestone boundaries work even if only upper_milestone_value was set
+        if input_anchor1.upper_milestone_value is not None:
+            ms_val = input_anchor1.upper_milestone_value
+        elif input_anchor2.lower_milestone_value is not None:
+            ms_val = input_anchor2.lower_milestone_value
+        else:
+            ms_val = 0.5 * (input_anchor1.value + input_anchor2.value)
 
-        # Assign Z cutoff variables to newly created milestones
         input_anchors = [input_anchor1, input_anchor2]
         for i,anchor in enumerate([anchor1, anchor2]):
             input_anchor = input_anchors[i]
             for ms in anchor.milestones:
                 if ms.index == current_ms_index:
-                    ms.variables["z_cutoff"] = z_cutoff
-                    ms.variables["k_z"] = k_z
-                    #ms.variables
+                    ms.variables["value"] = ms_val
                     if input_anchor.bd_n_needed is not None:
                         ms.variables["n_needed"] = input_anchor.bd_n_needed
 
@@ -2518,6 +2518,19 @@ class Path_combo(Combo):
                         groups_dict[f"group_{idx}"] = [int(a) for a in parsed]
             return groups_dict
 
+        def _is_same_drmsd_sz_pair(cv_i, cv_j):
+                """Returns True if cv_i and cv_j are the 's' and 'z' components of the same dRMSD path."""
+                if not (isinstance(cv_i, dRMSD_path_cv_input) and isinstance(cv_j, dRMSD_path_cv_input)):
+                    return False
+                types = {cv_i.cv_type.lower(), cv_j.cv_type.lower()}
+                if types != {"s", "z"}:
+                    return False
+                g1_i = [int(a) for a in base.parse_xml_list(cv_i.group1)]
+                g1_j = [int(a) for a in base.parse_xml_list(cv_j.group1)]
+                g2_i = [int(a) for a in base.parse_xml_list(cv_i.group2)]
+                g2_j = [int(a) for a in base.parse_xml_list(cv_j.group2)]
+                return (g1_i == g1_j) and (g2_i == g2_j) and (cv_i.ref_file == cv_j.ref_file)
+
         num_cvs = len(self.cv_inputs)
         for i in range(num_cvs):
             cv_i = self.cv_inputs[i]
@@ -2543,6 +2556,8 @@ class Path_combo(Combo):
             # Check across different CVs
             for j in range(i + 1, num_cvs):
                 cv_j = self.cv_inputs[j]
+                if _is_same_drmsd_sz_pair(cv_i, cv_j):
+                    continue
                 groups_j = _extract_groups(cv_j)
                 for n1, g1 in groups_i.items():
                     for n2, g2 in groups_j.items():
@@ -2610,6 +2625,7 @@ class Path_combo(Combo):
         num_anchors = 1
         cv_widths = []
         for cv_input in self.cv_inputs:
+            cv_input.check()
             cv_width = len(cv_input.input_anchors)
             cv_widths.append(cv_width)
             num_anchors *= cv_width
@@ -2724,16 +2740,18 @@ class Path_combo(Combo):
                 if input_anchor_index < len(cv_input.input_anchors) - 1:
                     upper_anchor_index = i + divider
                     upper_anchor = anchors[upper_anchor_index]
-                    upper_input_anchor = cv_input.input_anchors[input_anchor_index + 1]
-                    milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
-                        anchor, upper_anchor, this_input_anchor, upper_input_anchor, milestone_index)
+                    if not (anchor.bulkstate and upper_anchor.bulkstate):
+                        upper_input_anchor = cv_input.input_anchors[input_anchor_index + 1]
+                        milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
+                            anchor, upper_anchor, this_input_anchor, upper_input_anchor, milestone_index)
 
                 if input_anchor_index > 0:
                     lower_anchor_index = i - divider
                     lower_anchor = anchors[lower_anchor_index]
-                    lower_input_anchor = cv_input.input_anchors[input_anchor_index - 1]
-                    milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
-                        lower_anchor, anchor, lower_input_anchor, this_input_anchor, milestone_index)
+                    if not (anchor.bulkstate and lower_anchor.bulkstate):
+                        lower_input_anchor = cv_input.input_anchors[input_anchor_index - 1]
+                        milestone_index = cv_input.make_mmvt_milestone_between_two_anchors(
+                            lower_anchor, anchor, lower_input_anchor, this_input_anchor, milestone_index)
 
                 divider *= cv_widths[j]
 
