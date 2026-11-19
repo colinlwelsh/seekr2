@@ -96,7 +96,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
 
     def _get_path_z_expression(self):
         if not hasattr(self, "_path_z_expression") or self._path_z_expression is None:
-            self._path_z_expression = self.make_path_z_expression()
+            self._path_z_expression, self._path_z_definitions = self.make_path_z_expression()
             self.update_blacklist("_path_z_expression")
             self.update_blacklist("_path_z_definitions")
         return self._path_z_expression, self._path_z_definitions
@@ -245,15 +245,13 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
         force.addPerBondParameter("bitcode")
         force.addPerBondParameter("k")
         force.addPerBondParameter("value")
-        force.addPerBondParameter("k_z")
-        force.addPerBondParameter("z_cutoff")
         return [self.lambda_var]
 
     def add_groups_and_variables(self, force, variables, alias_id):
         assert force.getNumBonds() == 0, \
             "add_groups_and_variables cannot be called twice for the same CV."
         all_particles = [int(a) for a in self.group1] + [int(a) for a in self.group2]
-        force.addBond(all_particles, variables)   # bitcode, k, value, k_z, z_cutoff as real per-bond values
+        force.addBond(all_particles, variables)   # bitcode, k, value as real per-bond values
         return
 
     def update_groups_and_variables(self, force, variables, alias_id, context):
