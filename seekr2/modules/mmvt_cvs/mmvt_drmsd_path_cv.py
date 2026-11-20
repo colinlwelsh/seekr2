@@ -136,7 +136,7 @@ class MMVT_dRMSD_Path_CV(MMVT_collective_variable):
     def make_path_z_expression(self):
         """Creates OpenMM expression and definitions for orthogonal path distance z(x)."""
         _, denominator, definition_str = self._build_exp_definitions()
-        expression_str = f"(-1.0 / {self.lambda_var} * log(max(1e-300, {denominator})))"
+        expression_str = f"(-1.0 / {self.lambda_var} * log(max(1e-35, {denominator})))"
         return expression_str, definition_str
 
     def make_path_s_expression(self, var_tol=0.005):
